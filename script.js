@@ -20,6 +20,7 @@ let isGaarMode = false;
 let isDrawingMode = false;
 const manualCircuitColors = ['#ff00ff', '#00ffff', '#ff8c00', '#00ff00', '#ff1493'];
 let gaarLayer = null;
+let db; // Variable pour la connexion à la base de données IndexedDB
 const airports = [
     { oaci: "LFLU", name: "Valence-Chabeuil", lat: 44.920, lon: 4.968 }, { oaci: "LFMU", name: "Béziers-Vias", lat: 43.323, lon: 3.354 }, { oaci: "LFJR", name: "Angers-Marcé", lat: 47.560, lon: -0.312 }, { oaci: "LFHO", name: "Aubenas-Ardèche Méridionale", lat: 44.545, lon: 4.385 }, { oaci: "LFLX", name: "Châteauroux-Déols", lat: 46.861, lon: 1.720 }, { oaci: "LFBM", name: "Mont-de-Marsan", lat: 43.894, lon: -0.509 }, { oaci: "LFBL", name: "Limoges-Bellegarde", lat: 45.862, lon: 1.180 }, { oaci: "LFAQ", name: "Albert-Bray", lat: 49.972, lon: 2.698 }, { oaci: "LFBP", name: "Pau-Pyrénées", lat: 43.380, lon: -0.418 }, { oaci: "LFTH", name: "Toulon-Hyères", lat: 43.097, lon: 6.146 }, { oaci: "LFSG", name: "Épinal-Mirecourt", lat: 48.325, lon: 6.068 }, { oaci: "LFKC", name: "Calvi-Sainte-Catherine", lat: 42.530, lon: 8.793 }, { oaci: "LFMD", name: "Cannes-Mandelieu", lat: 43.542, lon: 6.956 }, { oaci: "LFKB", name: "Bastia-Poretta", lat: 42.552, lon: 9.483 }, { oaci: "LFMH", name: "Saint-Étienne-Bouthéon", lat: 45.541, lon: 4.296 }, { oaci: "LFKF", name: "Figari-Sud-Corse", lat: 41.500, lon: 9.097 }, { oaci: "LFCC", name: "Cahors-Lalbenque", lat: 44.351, lon: 1.475 }, { oaci: "LFML", name: "Marseille-Provence", lat: 43.436, lon: 5.215 }, { oaci: "LFKJ", name: "Ajaccio-Napoléon-Bonaparte", lat: 41.923, lon: 8.802 }, { oaci: "LFMK", name: "Carcassonne-Salvaza", lat: 43.215, lon: 2.306 }, { oaci: "LFRV", name: "Vannes-Meucon", lat: 47.720, lon: -2.721 }, { oaci: "LFTW", name: "Nîmes-Garons", lat: 43.757, lon: 4.416 }, { oaci: "LFMP", name: "Perpignan-Rivesaltes", lat: 42.740, lon: 2.870 }, { oaci: "LFBD", name: "Bordeaux-Mérignac", lat: 44.828, lon: -0.691 }
 ];
@@ -47,6 +48,8 @@ async function initializeApp() {
     if (savedGaarJSON) {
         gaarCircuits = JSON.parse(savedGaarJSON);
     }
+    await initDB();
+displayInstalledMaps();
     try {
         const response = await fetch('./communes.json');
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -114,11 +117,15 @@ function setupEventListeners() {
     const calculatorButton = document.getElementById('calculator-button');
     const calculatorModal = document.getElementById('calculator-modal');
     const closeCalculatorButton = document.getElementById('close-calculator-btn');
+    const offlineMapsButton = document.getElementById('offline-maps-button');
+    const offlineMapModal = document.getElementById('offline-map-modal');
+    const closeOfflineMapButton = document.getElementById('close-offline-map-btn');
+    const zipImporterInput = document.getElementById('zip-importer-input');
 
     if (mainActionButtons) {
         const versionDisplay = document.createElement('div');
         versionDisplay.className = 'version-display';
-        versionDisplay.innerText = 'v2.1.2';
+        versionDisplay.innerText = 'v54.0';
         mainActionButtons.appendChild(versionDisplay);
     }
 
@@ -243,6 +250,15 @@ function setupEventListeners() {
     closeCalculatorButton.addEventListener('click', () => { calculatorModal.style.display = 'none'; });
     calculatorModal.addEventListener('click', (e) => { if (e.target === calculatorModal) { calculatorModal.style.display = 'none'; } });
     window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && calculatorModal.style.display === 'flex') { calculatorModal.style.display = 'none'; } });
+    offlineMapsButton.addEventListener('click', () => { offlineMapModal.style.display = 'flex'; });
+    closeOfflineMapButton.addEventListener('click', () => { offlineMapModal.style.display = 'none'; });
+    offlineMapModal.addEventListener('click', (e) => { if (e.target === offlineMapModal) { offlineMapModal.style.display = 'none'; } });
+    window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && offlineMapModal.style.display === 'flex') { offlineMapModal.style.display = 'none'; } });
+    zipImporterInput.addEventListener('change', (event) => {
+    const file = event.target.files[0];
+    handleZipImport(file);
+    event.target.value = ''; // Permet de ré-importer le même fichier
+});
 
     updateLftwButtonState();
     updateGaarButtonState();
@@ -523,16 +539,177 @@ function updateCalculatorData() {
 }
 
 function soundex(s) { if (!s) return ""; const a = s.toLowerCase().split(""), f = a.shift(); if (!f) return ""; let r = ""; const codes = { a: "", e: "", i: "", o: "", u: "", b: 1, f: 1, p: 1, v: 1, c: 2, g: 2, j: 2, k: 2, q: 2, s: 2, x: 2, z: 2, d: 3, t: 3, l: 4, m: 5, n: 5, r: 6 }; return r = f + a.map(v => codes[v]).filter((v, i, a) => 0 === i ? v !== codes[f] : v !== a[i - 1]).join(""), (r + "000").slice(0, 4).toUpperCase() }
+// =========================================================================
+// GESTION DES CARTES HORS-LIGNE
+// =========================================================================
+function initDB() {
+    return new Promise((resolve, reject) => {
+        const request = indexedDB.open('OfflineTilesDB', 1);
 
+        request.onupgradeneeded = event => {
+            const dbInstance = event.target.result;
+            if (!dbInstance.objectStoreNames.contains('tiles')) {
+                const store = dbInstance.createObjectStore('tiles', { keyPath: 'url' });
+                store.createIndex('packName', 'packName', { unique: false });
+            }
+        };
+
+        request.onsuccess = event => {
+            db = event.target.result;
+            console.log("[DB] Connexion réussie.");
+            resolve(db);
+        };
+
+        request.onerror = event => {
+            console.error("[DB] Erreur de connexion:", event.target.error);
+            reject(event.target.error);
+        };
+    });
+}
+
+async function handleZipImport(file) {
+    if (!file) return;
+    if (typeof JSZip === 'undefined') {
+        alert("ERREUR : La librairie d'importation (JSZip) n'est pas chargée.");
+        return;
+    }
+
+    const packName = file.name.replace('.zip', '');
+    const progressSection = document.getElementById('import-progress-section');
+    const statusMessage = document.getElementById('import-status-message');
+    const progressBar = document.getElementById('import-progress-bar');
+
+    progressSection.style.display = 'block';
+    progressBar.style.width = '0%';
+    statusMessage.textContent = `Analyse du fichier ${packName}...`;
+
+    try {
+        const zip = await JSZip.loadAsync(file);
+        const tileFiles = Object.values(zip.files).filter(f => !f.dir && f.name.match(/\d+\/\d+\/\d+\.(png|jpg|jpeg)$/i));
+        const totalFiles = tileFiles.length;
+
+        if (totalFiles === 0) {
+            throw new Error("Aucune tuile valide trouvée dans le ZIP. La structure doit être /zoom/colonne/ligne.png");
+        }
+
+        statusMessage.textContent = `Préparation de ${totalFiles} tuiles pour l'importation...`;
+
+        // Étape 1: Décompresser toutes les tuiles en mémoire d'abord.
+        const allTilesData = [];
+        for (const tileFile of tileFiles) {
+            const blob = await tileFile.async('blob');
+            const url = `https://a.tile.openstreetmap.org/${tileFile.name}`;
+            allTilesData.push({ url: url, tile: blob, packName: packName });
+        }
+
+        // Étape 2: Insérer les données par lots dans la base de données.
+        const batchSize = 100; // Traiter 100 tuiles à la fois
+        let processedFiles = 0;
+
+        for (let i = 0; i < allTilesData.length; i += batchSize) {
+            const batch = allTilesData.slice(i, i + batchSize);
+            const transaction = db.transaction('tiles', 'readwrite');
+            const store = transaction.objectStore('tiles');
+            
+            // Lancer toutes les écritures du lot
+            batch.forEach(tileData => {
+                store.put(tileData);
+            });
+            
+            // Attendre que la transaction du lot se termine
+            await new Promise((resolve, reject) => {
+                transaction.oncomplete = () => {
+                    processedFiles += batch.length;
+                    statusMessage.textContent = `Importation... ${processedFiles} / ${totalFiles} tuiles`;
+                    progressBar.style.width = `${(processedFiles / totalFiles) * 100}%`;
+                    resolve();
+                };
+                transaction.onerror = () => reject(transaction.error);
+            });
+        }
+        
+        statusMessage.textContent = `Importation de ${packName} terminée !`;
+        
+        const installedPacks = JSON.parse(localStorage.getItem('installedMapPacks') || '[]');
+        if (!installedPacks.find(p => p.name === packName)) {
+            installedPacks.push({ name: packName, date: new Date().toLocaleDateString() });
+            localStorage.setItem('installedMapPacks', JSON.stringify(installedPacks));
+        }
+        displayInstalledMaps();
+
+    } catch (error) {
+        statusMessage.textContent = `Erreur: ${error.message}`;
+        console.error("Erreur d'importation ZIP:", error);
+    } finally {
+        setTimeout(() => { progressSection.style.display = 'none'; }, 5000);
+    }
+}
+
+function displayInstalledMaps() {
+    const list = document.getElementById('installed-maps-list');
+    const installedPacks = JSON.parse(localStorage.getItem('installedMapPacks') || '[]');
+    list.innerHTML = '';
+
+    if (installedPacks.length === 0) {
+        list.innerHTML = '<li class="no-maps-placeholder">Aucun pack de cartes installé.</li>';
+        return;
+    }
+
+    installedPacks.forEach(pack => {
+        const li = document.createElement('li');
+        li.innerHTML = `
+            <span><strong>${pack.name}</strong> (Installé le ${pack.date})</span>
+            <button class="delete-map-btn" onclick="window.deleteMapPack('${pack.name}')">Supprimer</button>
+        `;
+        list.appendChild(li);
+    });
+}
+
+window.deleteMapPack = async function(packName) {
+    if (!confirm(`Voulez-vous vraiment supprimer le pack de cartes "${packName}" ?\nCette opération peut prendre du temps.`)) {
+        return;
+    }
+
+    try {
+        const transaction = db.transaction('tiles', 'readwrite');
+        const store = transaction.objectStore('tiles');
+        const index = store.index('packName');
+        const request = index.openKeyCursor(IDBKeyRange.only(packName));
+        
+        let deletedCount = 0;
+        request.onsuccess = event => {
+            const cursor = event.target.result;
+            if (cursor) {
+                store.delete(cursor.primaryKey);
+                deletedCount++;
+                cursor.continue();
+            }
+        };
+
+        await new Promise(resolve => transaction.oncomplete = resolve);
+        
+        alert(`${deletedCount} tuiles du pack "${packName}" ont été supprimées.`);
+
+        let installedPacks = JSON.parse(localStorage.getItem('installedMapPacks') || '[]');
+        installedPacks = installedPacks.filter(p => p.name !== packName);
+        localStorage.setItem('installedMapPacks', JSON.stringify(installedPacks));
+        
+        displayInstalledMaps();
+
+    } catch (error) {
+        alert(`Erreur lors de la suppression du pack : ${error.message}`);
+        console.error("Erreur de suppression:", error);
+    }
+}
 // =========================================================================
 // LOGIQUE DU CALCULATEUR DE MISSION
 // =========================================================================
 let CALCULATOR_DATA = { distBaseFeu: 0, distPelicFeu: 0, csFeu: '--:--', distGpsFeu: 0 };
 const calculateBingo = (dist) => (dist <= 70) ? (dist * 5) + 700 : (dist * 4) + 700;
 const calculateFuelToGo = (dist) => (dist <= 70) ? (dist * 5) : (dist * 4);
-const calculateConsoRotation = (dist) => (dist <= 70) ? (dist * 10) + 250 : (dist * 8) + 250;
+const calculateConsoRotation = (dist) => { const effectiveDist = Math.max(dist, 10); return (effectiveDist <= 70) ? (effectiveDist * 10) + 250 : (effectiveDist * 8) + 250; };
 const calculateTransitTime = (dist) => (dist <= 70) ? (dist * (60 / 210)) : (dist * (60 / 240));
-const calculateRotationTime = (dist) => (dist <= 50) ? (20 + (dist / 3.5)) : (20 + (dist / 4));
+const calculateRotationTime = (dist) => { const effectiveDist = Math.max(dist, 10); return (effectiveDist <= 50) ? (20 + (effectiveDist / 3.5)) : (20 + (effectiveDist / 4)); };
 let masterRecalculate = () => {};
 let isFuelSurFeuManual = false, isSuiviConsoManual = false, isSuiviDureeManual = false;
 const parseTime = (timeString) => { if (!timeString || !timeString.includes(':')) return null; const parts = timeString.split(':'); return parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10); };
@@ -553,45 +730,63 @@ function updateAndSortRotations(container, current, params) {
         const canCalculateFuel = current.fuel !== null && params.consoRotation !== null && params.consoRotation > 0;
         const canCalculateTime = current.time !== null && params.rotationTime !== null && params.rotationTime > 0;
 
-        // Génération de la formule textuelle, que les données soient présentes ou non
+        // **Logique du +1 conditionnel**
+        // Le carburant de départ pour cette vérification est le 'fuel actuel' (avant transit vers le feu), pas le 'fuel sur feu'
+        const initialFuelForCheck = current.fuel + (params.transitTime ? (params.consoTransitFromGps || 0) : 0);
+        const fuelForFirstDropBase = (params.transitTime ? (params.consoTransitFromGps || 0) : 0) + 250 + params.bingoBase;
+        const fuelForFirstDropPelic = (params.transitTime ? (params.consoTransitFromGps || 0) : 0) + 250 + params.bingoPelic;
+        
+        const hasFuelForFirstDropBase = initialFuelForCheck >= fuelForFirstDropBase;
+        const hasFuelForFirstDropPelic = initialFuelForCheck >= fuelForFirstDropPelic;
+
         if (type === 'base') {
-            formulaString = `Formule : ((Fuel Actuel - BINGO Base) / Conso. Rotation) + 1\n\nCalcul : ((${current.fuel || 'N/A'} - ${params.bingoBase}) / ${params.consoRotation || 'N/A'}) + 1`;
-            if (canCalculateFuel) value = ((current.fuel - params.bingoBase) / params.consoRotation) + 1;
+            const plusOne = hasFuelForFirstDropBase ? 1 : 0;
+            formulaString = `Fuel sur Feu = ${current.fuel || 'N/A'} kg\n\nFormule : ((Fuel sur Feu - BINGO Base) / Conso. Rotation) [+1 si possible]\n\nCalcul : ((${current.fuel || 'N/A'} - ${params.bingoBase}) / ${params.consoRotation || 'N/A'}) + ${plusOne}`;
+            if (canCalculateFuel) value = ((current.fuel - params.bingoBase) / params.consoRotation) + plusOne;
         }
         if (type === 'pelic') {
-            formulaString = `Formule : ((Fuel Actuel - BINGO Pélic.) / Conso. Rotation) + 1\n\nCalcul : ((${current.fuel || 'N/A'} - ${params.bingoPelic}) / ${params.consoRotation || 'N/A'}) + 1`;
-            if (canCalculateFuel) value = ((current.fuel - params.bingoPelic) / params.consoRotation) + 1;
+            const plusOne = hasFuelForFirstDropPelic ? 1 : 0;
+            formulaString = `Fuel sur Feu = ${current.fuel || 'N/A'} kg\n\nFormule : ((Fuel sur Feu - BINGO Pélic.) / Conso. Rotation) [+1 si possible]\n\nCalcul : ((${current.fuel || 'N/A'} - ${params.bingoPelic}) / ${params.consoRotation || 'N/A'}) + ${plusOne}`;
+            if (canCalculateFuel) value = ((current.fuel - params.bingoPelic) / params.consoRotation) + plusOne;
         }
         if (type === 'cs') {
-            formulaString = `Formule : (Heure CS - Heure Actuelle) / Durée Rotation\n\nCalcul : (${formatTime(params.csFeuTime) || 'N/A'} - ${formatTime(current.time) || 'N/A'}) / ${params.rotationTime || 'N/A'} min`;
+            formulaString = `Heure sur Feu = ${formatTime(current.time) || 'N/A'}\n\nFormule : (Heure CS - Heure sur Feu) / Durée Rotation\n\nCalcul : (${formatTime(params.csFeuTime) || 'N/A'} - ${formatTime(current.time) || 'N/A'}) / ${params.rotationTime || 'N/A'} min`;
             if (canCalculateTime && params.csFeuTime !== null) value = (params.csFeuTime - current.time) / params.rotationTime;
         }
         if (type === 'tmd') {
-            formulaString = `Formule : (Heure TMD - Heure Actuelle) / Durée Rotation\n\nCalcul : (${formatTime(params.tmdTime) || 'N/A'} - ${formatTime(current.time) || 'N/A'}) / ${params.rotationTime || 'N/A'} min`;
+            formulaString = `Heure sur Feu = ${formatTime(current.time) || 'N/A'}\n\nFormule : (Heure TMD - Heure sur Feu) / Durée Rotation\n\nCalcul : (${formatTime(params.tmdTime) || 'N/A'} - ${formatTime(current.time) || 'N/A'}) / ${params.rotationTime || 'N/A'} min`;
             if (canCalculateTime && params.tmdTime !== null) value = (params.tmdTime - current.time) / params.rotationTime;
         }
         if (type === 'hdv') {
             const hdvOnSite = (params.limiteHDV !== null) ? params.limiteHDV - (params.transitTime || 0) : null;
-            formulaString = `Formule : (HDV restantes à l'arrivée) / Durée Rotation\n\nHDV à l'arrivée = ${formatTime(params.limiteHDV) || 'N/A'} - ${formatTime(params.transitTime || 0)} (transit)\n\nCalcul : ${formatTime(hdvOnSite) || 'N/A'} / ${params.rotationTime || 'N/A'} min`;
+            formulaString = `HDV sur Feu = ${formatTime(hdvOnSite) || 'N/A'}\n\nFormule : (HDV sur Feu) / Durée Rotation\n\nHDV sur Feu = ${formatTime(params.limiteHDV) || 'N/A'} - ${formatTime(params.transitTime || 0)} (transit)\n\nCalcul : ${formatTime(hdvOnSite) || 'N/A'} / ${params.rotationTime || 'N/A'} min`;
             if (canCalculateTime && hdvOnSite !== null) value = hdvOnSite / params.rotationTime;
         }
         
-        if (value === null) { valueCell.textContent = '--'; } 
-        else if (value > 0) { valueCell.textContent = value.toFixed(2); } 
-        else { valueCell.textContent = '0.00'; }
+        if (value === null) {
+            valueCell.textContent = '--';
+        } else {
+            valueCell.textContent = value.toFixed(1); 
+        }
         
         valueCell.classList.remove('rotation-value-default', 'rotation-value-green', 'rotation-value-yellow', 'rotation-value-red');
-        if (value === null || value <= 0) { valueCell.classList.add('rotation-value-default'); if(value === null) valueCell.textContent = '--'; } 
-        else if (value > 1.5) { valueCell.classList.add('rotation-value-green'); } 
-        else if (value >= 1.1) { valueCell.classList.add('rotation-value-yellow'); } 
-        else { valueCell.classList.add('rotation-value-red'); }
+        if (value === null) {
+             valueCell.classList.add('rotation-value-default');
+             valueCell.textContent = '--';
+        } else if (value > 1.5) {
+            valueCell.classList.add('rotation-value-green');
+        } else if (value >= 1.1) {
+            valueCell.classList.add('rotation-value-yellow');
+        } else {
+            valueCell.classList.add('rotation-value-red');
+        }
         
         if (helpIcon) { helpIcon.onclick = () => alert(formulaString); }
         
-        sortable.push({ value: (value !== null && value > 0) ? value : Infinity, element: line });
+        sortable.push({ value: (value !== null) ? value : Infinity, element: line });
     });
 
-    sortable.sort((a, b) => a.value - b.value);
+    sortable.sort((a, b) => a.value - b.a);
     sortable.forEach(item => container.appendChild(item.element));
 }
 
@@ -683,20 +878,20 @@ function updatePreviTab() {
     const consoAller = calculateFuelToGo(CALCULATOR_DATA.distBaseFeu);
     const heureSurFeu = blocDepart !== null ? blocDepart + transitTime : null;
     
-    document.getElementById('duree-transit').textContent = formatTime(transitTime);
+    document.getElementById('duree-transit').textContent = formatTime(transitTime) || '--:--';
     setHelp('duree-transit-help', `Formule : Distance * (60 / Vitesse)\n\nCalcul : ${CALCULATOR_DATA.distBaseFeu} Nm * (60 / ${CALCULATOR_DATA.distBaseFeu <= 70 ? 210 : 240})`);
     
-    document.getElementById('heure-sur-feu').textContent = formatTime(heureSurFeu);
+    document.getElementById('heure-sur-feu').textContent = formatTime(heureSurFeu) || '--:--';
     setHelp('heure-sur-feu-help', `Formule : BLOC Départ + Durée transit\n\nCalcul : ${formatTime(blocDepart) || 'N/A'} + ${formatTime(transitTime)}`);
 
     document.getElementById('conso-aller-feu').textContent = `${consoAller} kg`;
     setHelp('conso-aller-feu-help', `Formule : Distance * Conso. au Nm\n\nCalcul : ${CALCULATOR_DATA.distBaseFeu} Nm * ${CALCULATOR_DATA.distBaseFeu <= 70 ? 5 : 4} kg/Nm`);
 
     document.getElementById('duree-rotation').textContent = rotationTime === 20 ? '--:--' : formatTime(rotationTime);
-    setHelp('duree-rotation-help', `Formule : 20min + (Distance / Vitesse Sol)\n\nCalcul : 20 + (${CALCULATOR_DATA.distPelicFeu} Nm / ${CALCULATOR_DATA.distPelicFeu <= 50 ? 3.5 : 4})`);
+    setHelp('duree-rotation-help', `Formule : 20min + (Distance / Vitesse Sol)\n\nCalcul : 20 + (${Math.max(CALCULATOR_DATA.distPelicFeu, 10)} Nm / ${Math.max(CALCULATOR_DATA.distPelicFeu, 10) <= 50 ? 3.5 : 4})`);
 
     document.getElementById('conso-par-rotation').textContent = consoRotation === 250 ? '-- kg' : `${consoRotation} kg`;
-    setHelp('conso-par-rotation-help', `Formule : (Distance * Conso. au Nm) + Forfait\n\nCalcul : (${CALCULATOR_DATA.distPelicFeu} Nm * ${CALCULATOR_DATA.distPelicFeu <= 70 ? 10 : 8}) + 250`);
+    setHelp('conso-par-rotation-help', `Formule : (Distance * Conso. au Nm) + Forfait\n\nCalcul : (${Math.max(CALCULATOR_DATA.distPelicFeu, 10)} Nm * ${Math.max(CALCULATOR_DATA.distPelicFeu, 10) <= 70 ? 10 : 8}) + 250`);
 
     const fuelSurFeuInput = document.getElementById('fuel-sur-feu-wrapper').querySelector('.display-input');
     const fuelEstime = fuelDepart ? fuelDepart - consoAller : null;
@@ -709,7 +904,7 @@ function updatePreviTab() {
     document.getElementById('tmd-display').textContent = formatTime(tmdTime);
     document.getElementById('hdv-restant-display').textContent = formatTime(limiteHDV);
 
-    updateAndSortRotations(document.getElementById('previ-rotation-results-container'), { fuel: fuelSurFeu, time: heureSurFeu }, { bingoBase, bingoPelic, consoRotation, rotationTime, csFeuTime, tmdTime, limiteHDV, transitTime });
+    updateAndSortRotations(document.getElementById('previ-rotation-results-container'), { fuel: fuelSurFeu, time: heureSurFeu }, { bingoBase, bingoPelic, consoRotation, rotationTime, csFeuTime, tmdTime, limiteHDV, transitTime, consoTransitFromGps: consoAller });
 }
 
 function updateSuiviTab() {
