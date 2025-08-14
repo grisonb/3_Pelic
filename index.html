@@ -10,19 +10,17 @@
     <link rel="manifest" href="manifest.json">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <!-- 
-<script>
-  if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js').then(registration => {
-        console.log('SW enregistré');
-      }).catch(registrationError => {
-        console.log('Erreur SW', registrationError);
-      });
-    });
-  }
-</script>
--->
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./sw.js').then(reg => {
+                    console.log('Service Worker enregistré:', reg);
+                }).catch(err => {
+                    console.log('Erreur enregistrement Service Worker:', err);
+                });
+            });
+        }
+    </script>
 </head>
 <body>
     <div id="map"></div>
@@ -51,10 +49,14 @@
                 </div>
             </div>
             <ul id="results-list" style="display: none;"></ul>
-            <div class="extra-controls">
+               
+<div class="extra-controls">
                 <button id="lftw-route-button" class="toggle-button active" title="Afficher/Masquer la route vers LFTW">Route LFTW</button>
                 <button id="gaar-mode-button" class="toggle-button" title="Afficher/Masquer les circuits GAAR">Circuits GAAR</button>
+                <button id="offline-maps-button" class="toggle-button" title="Gérer les cartes hors-ligne">Cartes offline</button>
             </div>
+
+  
             <div id="gaar-controls" style="display: none;">
                 <button id="edit-circuits-button" class="toggle-button">Modifier Circuits</button>
                 <button id="delete-circuits-btn" class="delete-button">Supprimer Circuits</button>
@@ -65,6 +67,7 @@
     </div>
     <script src="leaflet.min.js"></script>
     <script src="suncalc.js"></script>
+      <script src="jszip.min.js"></script>
     <script src="script.js"></script>
     
     <div id="calculator-modal" style="display: none;">
@@ -181,6 +184,36 @@
   
             </div>
             <button id="reset-all-btn" title="Réinitialiser le tableau">🗑️</button>
+        </div>
+    </div>
+          
+<div id="offline-map-modal" style="display: none;">
+        <div class="main-container">
+            <button id="close-offline-map-btn">&times;</button>
+            <h2>Gestion des Cartes Hors-ligne</h2>
+            
+            <div class="modal-content">
+                <div class="import-section">
+                    <p>Importez un pack de tuiles au format .zip pour l'utiliser hors-ligne.</p>
+                    <label for="zip-importer-input" class="import-button">Importer un pack de tuiles (.zip)</label>
+                    <input type="file" id="zip-importer-input" accept=".zip" style="display: none;">
+                </div>
+
+                <div id="import-progress-section" style="display: none;">
+                    <p id="import-status-message">Importation en cours...</p>
+                    <div class="progress-bar-container">
+                        <div id="import-progress-bar" class="progress-bar"></div>
+                    </div>
+                </div>
+
+                <div class="installed-maps-section">
+                    <h3>Packs installés</h3>
+                    <ul id="installed-maps-list">
+                        <!-- Les packs installés seront listés ici par le JavaScript -->
+                        <li class="no-maps-placeholder">Aucun pack de cartes installé.</li>
+                    </ul>
+                </div>
+            </div>
         </div>
     </div>
 </body>
