@@ -1,6 +1,6 @@
-const APP_CACHE_NAME = 'main-communes-app-cache-v301'; // Version 3.0.1
-const DATA_CACHE_NAME = 'main-communes-data-cache-v301';
-const TILE_CACHE_NAME = 'main-communes-tile-cache-v301';
+const APP_CACHE_NAME = 'communes-app-cache-v300'; // NOUVELLE VERSION DU CACHE
+const DATA_CACHE_NAME = 'communes-data-cache-v300'; // NOUVELLE VERSION DU CACHE
+const TILE_CACHE_NAME = 'communes-tile-cache-v300'; // NOUVELLE VERSION DU CACHE
 
 const APP_SHELL_URLS = [
     './',
@@ -11,7 +11,7 @@ const APP_SHELL_URLS = [
     './leaflet.css',
     './manifest.json',
     './suncalc.js',
-    './jszip.min.js' // <-- LIGNE AJOUTÉE
+    './jszip.min.js'
 ];
 
 const DATA_URLS = [
@@ -20,11 +20,12 @@ const DATA_URLS = [
 
 self.addEventListener('install', event => {
     console.log(`[SW] Installation ${APP_CACHE_NAME}`);
+    // La ligne ".then(() => self.skipWaiting())" a été supprimée ici pour une mise à jour plus sûre.
     event.waitUntil(
         Promise.all([
             caches.open(APP_CACHE_NAME).then(cache => cache.addAll(APP_SHELL_URLS)),
             caches.open(DATA_CACHE_NAME).then(cache => cache.addAll(DATA_URLS))
-        ]).then(() => self.skipWaiting())
+        ])
     );
 });
 
@@ -65,7 +66,7 @@ function getTileFromDb(url) {
             request.onsuccess = () => {
                 resolve(request.result ? new Response(request.result.tile) : null);
             };
-            request.onerror = () => resolve(null); // Si erreur, on considère que la tuile n'existe pas
+            request.onerror = () => resolve(null);
         });
     });
 }
@@ -73,17 +74,12 @@ function getTileFromDb(url) {
 self.addEventListener('fetch', event => {
     const requestUrl = new URL(event.request.url);
 
-    // Stratégie pour les tuiles de carte : DB d'abord, puis réseau, avec mise en cache réseau
     if (requestUrl.hostname.includes('tile.openstreetmap.org')) {
         event.respondWith(
             getTileFromDb(event.request.url).then(responseFromDb => {
                 if (responseFromDb) {
-                    // console.log(`[SW] Tuile servie depuis IndexedDB: ${event.request.url}`);
                     return responseFromDb;
                 }
-                
-                // console.log(`[SW] Tuile non trouvée en local, requête réseau: ${event.request.url}`);
-                // Si non trouvée en DB, on va sur le réseau et on met en cache (stratégie Stale-While-Revalidate)
                 return caches.open(TILE_CACHE_NAME).then(cache => {
                     return cache.match(event.request).then(cachedResponse => {
                         const fetchPromise = fetch(event.request).then(networkResponse => {
@@ -100,7 +96,6 @@ self.addEventListener('fetch', event => {
         return;
     }
     
-    // Stratégie pour le reste (App Shell, données): Cache d'abord, puis réseau
     event.respondWith(
         caches.match(event.request)
             .then(cachedResponse => {
