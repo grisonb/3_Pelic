@@ -1,4 +1,3 @@
-
 // =========================================================================
 // INITIALISATION DE L'APPLICATION
 // =========================================================================
@@ -57,14 +56,6 @@ const calculateDestinationPoint = (lat, lon, bearing, distanceNm) => {
 // LOGIQUE PRINCIPALE DE L'APPLICATION
 // =========================================================================
 async function initializeApp() {
-    if (navigator.storage && navigator.storage.persist) {
-        const isPersisted = await navigator.storage.persisted();
-        console.log(`Stockage persistant : ${isPersisted ? 'OUI' : 'NON'}`);
-        if (!isPersisted) {
-            const result = await navigator.storage.persist();
-            console.log(`Demande de stockage persistant : ${result ? 'ACCORDÉ' : 'REFUSÉ'}`);
-        }
-    }
     const statusMessage = document.getElementById('status-message');
     const searchSection = document.getElementById('search-section');
     loadState();
@@ -172,7 +163,7 @@ function setupEventListeners() {
     if (mainActionButtons) {
         const versionDisplay = document.createElement('div');
         versionDisplay.className = 'version-display';
-        versionDisplay.innerText = 'v1.0';
+        versionDisplay.innerText = 'v5.0';
         mainActionButtons.appendChild(versionDisplay);
     }
 
